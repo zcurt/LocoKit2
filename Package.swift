@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "LocoKit2", targets: ["LocoKit2"])
     ],
     dependencies: [
-        .package(url: "https://github.com/Jounce/Surge", from: "2.3.0"),
+        .package(url: "https://github.com/zcurt/Surge", from: "2.3.0"),
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.1.0")
     ],
     targets: [
