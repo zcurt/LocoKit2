@@ -13,6 +13,14 @@ public struct TimelineItemVisit: FetchableRecord, PersistableRecord, Identifiabl
 
 
     public static let minimumKeeperDuration: TimeInterval = .minutes(2)
+
+    /// How long a stop must last to be kept as a visit, by the visit's start date. Apps may
+    /// replace this (e.g. a user setting with a per-day override); it should be cheap and
+    /// thread-safe. Only the keeper decision uses it — the recorder's sleep gate stays on the
+    /// fixed `minimumKeeperDuration`, so a longer setting doesn't delay sleep mode.
+    nonisolated(unsafe) public static var keeperDuration: @Sendable (_ startDate: Date) -> TimeInterval = { _ in
+        minimumKeeperDuration
+    }
     public static let minimumValidDuration: TimeInterval = 10
 
     public static let minRadius: CLLocationDistance = 10

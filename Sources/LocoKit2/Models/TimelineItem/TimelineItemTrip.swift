@@ -16,6 +16,10 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     public static let minimumValidSamples = 2
 
     public static let minimumKeeperDuration: TimeInterval = 30
+
+    /// Classifier score at or above which an unconfirmed activity type counts as certain.
+    /// Apps may tune it (or set it above 1 to leave every unconfirmed type uncertain).
+    nonisolated(unsafe) public static var certaintyThreshold: Double = 0.75
     public static let minimumKeeperDistance: Double = 20
     
     public static let minimumValidDataGapDuration: TimeInterval = .minutes(1)
@@ -73,7 +77,7 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
         }
         
         // Only check classifier confidence for unconfirmed types
-        uncertainActivityType = classifiedActivityType == nil || (results.bestMatch?.score ?? 0) < 0.75
+        uncertainActivityType = classifiedActivityType == nil || (results.bestMatch?.score ?? 0) < Self.certaintyThreshold
     }
 
     private static func calculateDistance(from samples: [LocomotionSample]) -> CLLocationDistance {

@@ -120,7 +120,7 @@ public struct TimelineItem: FetchableRecord, Codable, Identifiable, Hashable, Se
                     if visit.hasConfirmedPlace { return true }
                     if visit.customTitle != nil { return true }
                 }
-                if dateRange.duration < TimelineItemVisit.minimumKeeperDuration { return false }
+                if dateRange.duration < TimelineItemVisit.keeperDuration(dateRange.start) { return false }
                 return true
 
             } else { // Trips
