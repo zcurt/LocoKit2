@@ -277,7 +277,7 @@ public enum TimelineRecorder {
     /// it spans orders of magnitude — the ramp is linear in log(p): at or below 0.0001 (the
     /// "never seen this" floor, 0.01 × 0.01) sleeps 60s, at or above 0.25 (both factors near
     /// half their peak) sleeps 6s. E.g. 0.001 ≈ 44s, 0.01 ≈ 28s, 0.1 ≈ 12s.
-    public static func sleepCycleDuration(forLeavingProbability probability: Double) -> TimeInterval {
+    nonisolated public static func sleepCycleDuration(forLeavingProbability probability: Double) -> TimeInterval {
         let longest: TimeInterval = 60, shortest: TimeInterval = 6
         let floorProbability = 0.0001, ceilingProbability = 0.25
         guard probability > floorProbability else { return longest }
