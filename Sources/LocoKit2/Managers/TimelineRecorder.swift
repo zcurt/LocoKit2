@@ -269,23 +269,21 @@ public enum TimelineRecorder {
             return
         }
 
-        // Map probability to duration (6-60 seconds)
-        let shortCycleThreshold = 0.1 // probability threshold for 6s sleep cycles
+        await loco.setSleepCycleDuration(sleepCycleDuration(forLeavingProbability: probability))
+    }
 
-        switch probability {
-        case shortCycleThreshold...1.0:  // high probability
-            await loco.setSleepCycleDuration(6)
-
-        case 0.01..<shortCycleThreshold: // common probability range
-            let normalised = (probability - 0.01) / (shortCycleThreshold - 0.01)
-            // Use cube root (0.33) for aggressive curve towards shorter cycles
-            let curved = pow(normalised, 0.33)
-            let duration = 60 - (curved * 54)
-            await loco.setSleepCycleDuration(duration)
-
-        default:         // Very low probability (<1%)
-            await loco.setSleepCycleDuration(60)
-        }
+    /// Maps a leaving probability onto a sleep cycle between 6 and 60 seconds, continuously.
+    /// The probability is a product of two KDE likelihoods (time of day × visit duration), so
+    /// it spans orders of magnitude — the ramp is linear in log(p): at or below 0.0001 (the
+    /// "never seen this" floor, 0.01 × 0.01) sleeps 60s, at or above 0.25 (both factors near
+    /// half their peak) sleeps 6s. E.g. 0.001 ≈ 44s, 0.01 ≈ 28s, 0.1 ≈ 12s.
+    public static func sleepCycleDuration(forLeavingProbability probability: Double) -> TimeInterval {
+        let longest: TimeInterval = 60, shortest: TimeInterval = 6
+        let floorProbability = 0.0001, ceilingProbability = 0.25
+        guard probability > floorProbability else { return longest }
+        guard probability < ceilingProbability else { return shortest }
+        let fraction = log(probability / floorProbability) / log(ceilingProbability / floorProbability)
+        return longest - fraction * (longest - shortest)
     }
 
     private static func updateSleepCycleDurationFallback() async {
