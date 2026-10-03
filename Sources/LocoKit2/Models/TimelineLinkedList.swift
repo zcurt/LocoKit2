@@ -15,7 +15,7 @@ public final class TimelineLinkedList: AsyncSequence {
 
     public init?(fromItemId seedItemId: String) async {
         do {
-            let seedItem = try await TimelineItem.fetchItem(itemId: seedItemId, includeSamples: true, includePlace: true)
+            let seedItem = try await Self.fetchFresh(itemId: seedItemId)
             if let seedItem {
                 self.seedItem = seedItem
                 timelineItems[seedItemId] = seedItem
@@ -50,7 +50,7 @@ public final class TimelineLinkedList: AsyncSequence {
         trackedItemIds.insert(itemId)
 
         do {
-            if let item = try await TimelineItem.fetchItem(itemId: itemId, includeSamples: true, includePlace: true) {
+            if let item = try await Self.fetchFresh(itemId: itemId) {
                 timelineItems[item.id] = item
                 return item
             } else {
@@ -61,6 +61,21 @@ public final class TimelineLinkedList: AsyncSequence {
             Log.error(error, subsystem: .database)
             return nil
         }
+    }
+
+    /// Fetches an item with its samples, bringing its stored stats (trip distance and
+    /// speed, visit centre and radius) up to date first when samples changed since they
+    /// were last computed. Merge scoring and validity read those stats: a trip recorded
+    /// in the background keeps the distance of its first sample until something refreshes
+    /// it, and a stale ~0 m distance makes a long walk look invalid — stops then absorb it.
+    private static func fetchFresh(itemId: String) async throws -> TimelineItem? {
+        guard var item = try await TimelineItem.fetchItem(itemId: itemId, includeSamples: true, includePlace: true) else {
+            return nil
+        }
+        if item.samplesChanged, let samples = item.samples {
+            await item.updateFrom(samples: samples)
+        }
+        return item
     }
 
     public func previousItem(for item: TimelineItem) async -> TimelineItem? {
