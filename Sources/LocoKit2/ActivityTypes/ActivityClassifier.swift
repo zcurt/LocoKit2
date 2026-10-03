@@ -38,38 +38,40 @@ public enum ActivityClassifier {
         }
 
         // highest priorty first (ie CD2 first)
-        let classifiers = models.sorted { $0.key > $1.key }.map { $0.value } 
+        let classifiers = models.sorted { $0.key > $1.key }.map { $0.value }
 
-        var combinedResults: ClassifierResults?
+        // weighted mean: each model claims its completeness share of the weight still
+        // unclaimed, and the last one (normally the base model) takes the rest — so a
+        // thin regional model no longer speaks for everyone just by being asked first
+        var scores: [ActivityType: Double] = [:]
+        var totalWeight = 0.0
         var remainingWeight = 1.0
 
         for classifier in classifiers {
             let results = await classifier.classify(sample)
+            if results.resultItems.isEmpty { continue } // no model file yet: no opinion, no weight
 
-            if combinedResults == nil {
-                combinedResults = results
-                remainingWeight -= classifier.completenessScore
-                if remainingWeight <= 0 { break } else { continue }
+            let isLast = classifier.id == classifiers.last?.id
+            let share = if isLast {
+                classifier.geoKey.hasPrefix("B") ? baseModelWeight : 1.0
+            } else {
+                classifier.completenessScore
             }
+            let weight = remainingWeight * share
+            if weight <= 0 { continue }
 
-            var completeness = classifier.completenessScore
-            if classifier.id == classifiers.last?.id {
-                // if last is a BD0, give it half as much weight
-                if classifier.geoKey.hasPrefix("B") {
-                    completeness = 0.5
-                } else { // otherwise let the last one take up all remaining weight
-                    completeness = 1.0
-                }
+            for item in results.resultItems {
+                scores[item.activityType, default: 0] += item.score * weight
             }
-
-            // merge in the results
-            let weight = remainingWeight * completeness
-            combinedResults = combinedResults?.merging(results, withWeight: weight)
-
+            totalWeight += weight
             remainingWeight -= weight
 
             if remainingWeight <= 0 { break }
         }
+
+        let combinedResults: ClassifierResults? = totalWeight > 0
+            ? ClassifierResults(resultItems: scores.map { ClassifierResultItem(name: $0.key, score: $0.value / totalWeight) })
+            : nil
 
         if let combinedResults {
             cache.setObject(combinedResults, forKey: sample.id as NSString)
@@ -136,6 +138,22 @@ public enum ActivityClassifier {
         return (ClassifierResults(resultItems: finalResults), perSampleResults)
     }
 
+    // MARK: - Base model
+
+    /// Share of the remaining weight the base model (BD0) takes when it's the last
+    /// classifier consulted. 0.5 suits a placeholder; an app that ships a base model
+    /// trained on real history can raise it to 1.
+    nonisolated(unsafe) public static var baseModelWeight: Double = 0.5
+
+    /// Drops cached results and models — call after the base model file changes.
+    public static func baseModelChanged() {
+        if let base = models.first(where: { $0.value.geoKey.hasPrefix("B") })?.value {
+            MLModelCache.invalidateModelFor(filename: base.filename)
+        }
+        models = models.filter { !$0.value.geoKey.hasPrefix("B") }
+        cache.removeAllObjects()
+    }
+
     // MARK: - Results caching
 
     private static let cache = NSCache<NSString, ClassifierResults>()
@@ -153,8 +171,8 @@ public enum ActivityClassifier {
             return classifier.contains(coordinate: coordinate)
         }
 
-        let bundledModelURL = Bundle.main.url(forResource: "BD0", withExtension: "mlmodelc")
-        let targetModelsCount = bundledModelURL != nil ? 4 : 3
+        let baseModelURL = MLModelCache.baseModelURL()
+        let targetModelsCount = baseModelURL != nil ? 4 : 3
 
         // all existing classifiers are good?
         if updated.count == targetModelsCount { return }
@@ -174,9 +192,9 @@ public enum ActivityClassifier {
             updated[0] = ActivityTypesModel.fetchModelFor(coordinate: coordinate, depth: 0)
         }
 
-        // get bundled CD0 (BD0)
-        if let bundledModelURL, updated.first(where: { $0.value.geoKey.hasPrefix("BD0") == true }) == nil {
-            updated[-1] = ActivityTypesModel(bundledURL: bundledModelURL)
+        // get the base model (BD0): the app's retrained copy, else the bundled one
+        if let baseModelURL, updated.first(where: { $0.value.geoKey.hasPrefix("BD0") == true }) == nil {
+            updated[-1] = ActivityTypesModel(bundledURL: baseModelURL)
         }
 
         models = updated

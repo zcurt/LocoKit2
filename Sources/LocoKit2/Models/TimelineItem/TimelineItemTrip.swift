@@ -22,6 +22,16 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     nonisolated(unsafe) public static var certaintyThreshold: Double = 0.75
     public static let minimumKeeperDistance: Double = 20
     
+    /// Average speeds at or below this are on foot; at or above `vehicleSpeed`, a vehicle.
+    /// Trips on opposite sides don't merge while their types are unconfirmed.
+    public static let onFootSpeed: CLLocationSpeed = 2.2   // ~8 km/h
+    public static let vehicleSpeed: CLLocationSpeed = 6.9  // ~25 km/h
+
+    public static func speedsConflict(_ a: CLLocationSpeed, _ b: CLLocationSpeed) -> Bool {
+        let (slow, fast) = (min(a, b), max(a, b))
+        return slow > 0 && slow <= onFootSpeed && fast >= vehicleSpeed
+    }
+
     public static let minimumValidDataGapDuration: TimeInterval = .minutes(1)
     public static let minimumKeeperDataGapDuration: TimeInterval = .hours(1)
 

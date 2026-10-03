@@ -345,30 +345,59 @@ public enum ActivityTypesManager {
     }
 #endif
 
-    // MARK: - BD0 Training
+    // MARK: - Base model (BD0) training
+
+    nonisolated
+    public static let baseModelTaskIdentifier = "com.bigpaua.Arc.baseModelUpdates"
+
+    /// Registers a weekly (on power) retrain of the base model from `seedCSV` plus this
+    /// device's confirmed samples. The app must list the identifier in Info.plist's
+    /// BGTaskSchedulerPermittedIdentifiers.
+    @MainActor
+    public static func registerBaseModelTask(seedCSV: URL?) {
+        BackgroundTasksManager.add(task: BackgroundTaskDefinition(
+            identifier: baseModelTaskIdentifier,
+            displayName: "base activity model update",
+            minimumDelay: .days(7),
+            requiresNetwork: false,
+            requiresPower: true,
+            foregroundThreshold: .days(14),
+            workHandler: { _ = try await trainBaseModel(seedCSV: seedCSV) }
+        ))
+    }
 
 #if targetEnvironment(simulator)
-    public nonisolated static func trainBD0() async throws -> URL {
-        fatalError("BD0 training requires a real device")
+    public nonisolated static func trainBaseModel(seedCSV: URL? = nil) async throws -> URL {
+        throw NSError(domain: "ActivityTypes", code: 0, userInfo: [NSLocalizedDescriptionKey: "Base model training requires a real device"])
     }
 #else
-    public nonisolated static func trainBD0() async throws -> URL {
-        try await Task.detached(priority: .userInitiated) {
-            // BIG-530: clean up training artefacts in tmp/ on all exit paths.
-            // iOS doesn't actively purge tmp/. compileModel writes the compiled
-            // .mlmodelc there too — copyItem to Documents leaves the source.
-            let csvFile = FileManager.default.temporaryDirectory.appendingPathComponent("BD0_training.csv")
-            let tempModelFile = FileManager.default.temporaryDirectory.appendingPathComponent("BD0.mlmodel")
+    /// Trains the location-free base model (BD0) from `seedCSV` (rows in
+    /// `ActivityTypesModel.baseModelCSVHeader` form — e.g. bundled history from another
+    /// recorder) plus every confirmed sample on this device, folded into the seven
+    /// `bd0Bucket`s. The result replaces MLModels/BD0.mlmodelc, which the classifier
+    /// prefers over a bundled copy.
+    public nonisolated static func trainBaseModel(seedCSV: URL? = nil) async throws -> URL {
+        try await Task.detached(priority: .utility) {
+            // BIG-530: clean up training artefacts in tmp/ on all exit paths
+            let manager = FileManager.default
+            let csvFile = manager.temporaryDirectory.appendingPathComponent("BD0_training.csv")
+            let tempModelFile = manager.temporaryDirectory.appendingPathComponent("BD0.mlmodel")
             var compiledModelFile: URL?
             defer {
-                try? FileManager.default.removeItem(at: csvFile)
-                try? FileManager.default.removeItem(at: tempModelFile)
-                if let compiledModelFile { try? FileManager.default.removeItem(at: compiledModelFile) }
+                try? manager.removeItem(at: csvFile)
+                try? manager.removeItem(at: tempModelFile)
+                if let compiledModelFile { try? manager.removeItem(at: compiledModelFile) }
             }
 
-            print("BD0: Fetching training samples...")
+            var csv: String
+            if let seedCSV {
+                csv = try String(contentsOf: seedCSV, encoding: .utf8)
+                if !csv.hasSuffix("\n") { csv += "\n" }
+            } else {
+                csv = ActivityTypesModel.baseModelCSVHeader + "\n"
+            }
 
-            let samples = try Database.pool.read { db in
+            let samples = try await Database.pool.read { db in
                 try LocomotionSample
                     .filter(sql: """
                         confirmedActivityType IS NOT NULL
@@ -381,72 +410,41 @@ public enum ActivityTypesManager {
                     .fetchAll(db)
             }
 
-            print("BD0: Fetched \(samples.count) samples, exporting CSV...")
-
-            // csvFile + tempModelFile declared at top of closure for defer cleanup
-            try? FileManager.default.removeItem(at: csvFile)
-
-            let header = "confirmedActivityType,stepHz,xyAcceleration,zAcceleration,movingState,verticalAccuracy,horizontalAccuracy,speed,course,latitude,longitude,altitude,heartRate,timeOfDay,sinceVisitStart"
-            try header.appendLineTo(csvFile)
-
-            var samplesCount = 0
-            var includedTypes: Set<ActivityType> = []
-
+            var localCount = 0
             for sample in samples {
-                guard let confirmedType = sample.confirmedActivityType else { continue }
-                guard let bucket = confirmedType.bd0Bucket else { continue }
-                guard let location = sample.location, location.hasUsableCoordinate else { continue }
-                guard location.speed >= 0, location.course >= 0 else { continue }
-                guard let stepHz = sample.stepHz else { continue }
-                guard let xyAcceleration = sample.xyAcceleration else { continue }
-                guard let zAcceleration = sample.zAcceleration else { continue }
-                guard location.horizontalAccuracy > 0 else { continue }
-                guard location.verticalAccuracy > 0 else { continue }
-
-                includedTypes.insert(bucket)
-
-                var line = ""
-                line += "\(bucket.rawValue),\(stepHz),\(xyAcceleration),\(zAcceleration),\(sample.movingState.rawValue),"
-                line += "\(location.verticalAccuracy),\(location.horizontalAccuracy),\(location.speed),\(location.course),"
-                line += "\(location.coordinate.latitude),\(location.coordinate.longitude),\(location.altitude),\(sample.heartRate ?? -1),"
-                line += "\(sample.timeOfDay),\(sample.sinceVisitStart)"
-
-                try line.appendLineTo(csvFile)
-                samplesCount += 1
+                guard let row = ActivityTypesModel.baseModelCSVRow(for: sample) else { continue }
+                csv += row + "\n"
+                localCount += 1
             }
+            try csv.write(to: csvFile, atomically: true, encoding: .utf8)
 
-            print("BD0: Exported \(samplesCount) samples with \(includedTypes.count) types")
-
-            guard samplesCount > 0, includedTypes.count > 1 else {
+            let dataFrame = try DataFrame(contentsOfCSVFile: csvFile)
+            let types = Set(dataFrame["confirmedActivityType"].compactMap { $0 as? Int })
+            guard dataFrame.rows.count > 0, types.count > 1 else {
                 throw NSError(domain: "ActivityTypes", code: 0, userInfo: [
-                    NSLocalizedDescriptionKey: "Insufficient training data: \(samplesCount) samples, \(includedTypes.count) types"
+                    NSLocalizedDescriptionKey: "Insufficient training data: \(dataFrame.rows.count) samples, \(types.count) types"
                 ])
             }
 
-            print("BD0: Training classifier...")
-
-            let dataFrame = try DataFrame(contentsOfCSVFile: csvFile)
             let classifier = try MLBoostedTreeClassifier(trainingData: dataFrame, targetColumn: "confirmedActivityType")
-
             let accuracy = 1.0 - classifier.validationMetrics.classificationError
-            print("BD0: Trained — accuracy \(String(format: "%.1f%%", accuracy * 100))")
 
-            // write and compile model — tempModelFile declared at top for defer cleanup
-            try? FileManager.default.removeItem(at: tempModelFile)
+            try? manager.removeItem(at: tempModelFile)
             try classifier.write(to: tempModelFile)
-            compiledModelFile = try MLModel.compileModel(at: tempModelFile)
-            // shadow with non-Optional for the rest of the scope
+            compiledModelFile = try await MLModel.compileModel(at: tempModelFile)
             guard let compiledModelFile else { fatalError("unreachable: compiledModelFile assigned above") }
 
-            // copy to Documents for retrieval via Xcode/Files
-            let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let outputURL = documentsDir.appendingPathComponent("BD0.mlmodelc")
-            if FileManager.default.fileExists(atPath: outputURL.path) {
-                try FileManager.default.removeItem(at: outputURL)
+            try manager.createDirectory(at: MLModelCache.modelsDir, withIntermediateDirectories: true)
+            let outputURL = MLModelCache.modelsDir.appendingPathComponent("BD0.mlmodelc")
+            if manager.fileExists(atPath: outputURL.path) {
+                _ = try manager.replaceItemAt(outputURL, withItemAt: compiledModelFile)
+            } else {
+                try manager.moveItem(at: compiledModelFile, to: outputURL)
             }
-            try FileManager.default.copyItem(at: compiledModelFile, to: outputURL)
 
-            print("BD0: Saved to \(outputURL.path)")
+            await ActivityClassifier.baseModelChanged()
+
+            Log.info("UPDATED: BD0 (rows: \(dataFrame.rows.count), local: \(localCount), accuracy: \(String(format: "%.3f", accuracy)))", subsystem: .activitytypes)
             return outputURL
         }.value
     }

@@ -48,9 +48,20 @@ public enum MLModelCache {
     nonisolated
     public static func getModelURLFor(filename: String) -> URL {
         if filename.hasPrefix("B") {
+            let retrained = modelsDir.appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: retrained.path) { return retrained }
             return Bundle.main.url(forResource: filename, withExtension: nil)!
         }
         return modelsDir.appendingPathComponent(filename)
+    }
+
+    /// The base model: one retrained on device (ActivityTypesManager.trainBaseModel)
+    /// wins over the copy bundled with the app.
+    nonisolated
+    public static func baseModelURL() -> URL? {
+        let retrained = modelsDir.appendingPathComponent("BD0.mlmodelc")
+        if FileManager.default.fileExists(atPath: retrained.path) { return retrained }
+        return Bundle.main.url(forResource: "BD0", withExtension: "mlmodelc")
     }
     
     public static func invalidateModelFor(filename: String) {

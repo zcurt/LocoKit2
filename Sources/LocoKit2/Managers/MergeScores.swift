@@ -152,6 +152,14 @@ public final class MergeScores {
         let consumerType = consumerTrip.activityType
         let consumeeType = consumeeTrip.activityType
 
+        // a drive and a walk stay apart even when the classifier can't name either:
+        // unconfirmed valid trips whose average speeds are vehicle vs on foot don't merge
+        if consumerTrip.confirmedActivityType == nil, consumeeTrip.confirmedActivityType == nil,
+           try consumer.isValid, try consumee.isValid,
+           TimelineItemTrip.speedsConflict(consumerTrip.speed, consumeeTrip.speed) {
+            return .impossible
+        }
+
         // no types means it's a random guess (possibly in background)
         if consumerType == nil && consumeeType == nil { return .medium }
 

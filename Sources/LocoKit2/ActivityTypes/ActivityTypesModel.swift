@@ -36,6 +36,33 @@ public struct ActivityTypesModel: FetchableRecord, PersistableRecord, Identifiab
     static let numberOfLatBucketsDepth2 = 200
     static let numberOfLongBucketsDepth2 = 200
 
+    // MARK: - Base model (BD0) features
+
+    /// The base model's inputs: motion and GPS quality only — no coordinates, altitude,
+    /// course or time of day — so what it learns about a drive or a walk holds anywhere.
+    public static let baseModelFeatures = [
+        "stepHz", "xyAcceleration", "zAcceleration", "movingState",
+        "verticalAccuracy", "horizontalAccuracy", "speed"
+    ]
+
+    public static var baseModelCSVHeader: String {
+        (["confirmedActivityType"] + baseModelFeatures).joined(separator: ",")
+    }
+
+    /// A training row for the base model (label folded into its `bd0Bucket`), or nil
+    /// when the sample is unconfirmed or lacks the motion and GPS data the model needs.
+    public static func baseModelCSVRow(for sample: LocomotionSample) -> String? {
+        guard let bucket = sample.confirmedActivityType?.bd0Bucket else { return nil }
+        guard let location = sample.location, location.hasUsableCoordinate else { return nil }
+        guard location.speed >= 0, location.horizontalAccuracy > 0, location.verticalAccuracy > 0 else { return nil }
+        guard let stepHz = sample.stepHz, let xy = sample.xyAcceleration, let z = sample.zAcceleration else { return nil }
+        let values: [String] = [
+            "\(bucket.rawValue)", "\(stepHz)", "\(xy)", "\(z)", "\(sample.movingState.rawValue)",
+            "\(location.verticalAccuracy)", "\(location.horizontalAccuracy)", "\(location.speed)"
+        ]
+        return values.joined(separator: ",")
+    }
+
     // MARK: - Properties
     
     public let geoKey: String
