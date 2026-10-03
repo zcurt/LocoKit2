@@ -21,6 +21,12 @@ public struct TimelineItemVisit: FetchableRecord, PersistableRecord, Identifiabl
     nonisolated(unsafe) public static var keeperDuration: @Sendable (_ startDate: Date) -> TimeInterval = { _ in
         minimumKeeperDuration
     }
+    /// Lets an app keep a visit shorter than `keeperDuration` — e.g. a brief parking stop
+    /// between a drive and a walk. Called only for valid, unconfirmed, untitled visits below
+    /// that duration; it may read the database (the processor never asks from inside a
+    /// database access), but should be quick.
+    nonisolated(unsafe) public static var keeperOverride: (@Sendable (TimelineItem) -> Bool)? = nil
+
     public static let minimumValidDuration: TimeInterval = 10
 
     public static let minRadius: CLLocationDistance = 10
