@@ -21,7 +21,26 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     /// Apps may tune it (or set it above 1 to leave every unconfirmed type uncertain).
     nonisolated(unsafe) public static var certaintyThreshold: Double = 0.75
     public static let minimumKeeperDistance: Double = 20
-    
+
+    /// An unconfirmed trip whose samples mostly stay within this distance of its centre never went
+    /// anywhere: GPS jitter, or wandering inside one place. Path length can't tell — jitter inflates it
+    /// (in Arc history such trips had a median 70 m of path inside a 24 m spread). Apps may tune it;
+    /// 0 disables the check.
+    nonisolated(unsafe) public static var minimumKeeperSpread: CLLocationDistance = 20
+
+    /// How far the trip reached from its centre: the 90th-percentile distance of the usable locations
+    /// from their per-axis median (robust to a stray fix either way). Nil without at least two locations.
+    public static func spread(of locations: [CLLocation]) -> CLLocationDistance? {
+        let usable = locations.usableLocations()
+        guard usable.count >= 2 else { return nil }
+        let latitudes = usable.map(\.coordinate.latitude).sorted()
+        let longitudes = usable.map(\.coordinate.longitude).sorted()
+        let center = CLLocation(latitude: latitudes[latitudes.count / 2], longitude: longitudes[longitudes.count / 2])
+        let distances = usable.map { $0.distance(from: center) }.sorted()
+        let rank = Int((Double(distances.count) * 0.9).rounded(.up)) - 1
+        return distances[max(0, min(rank, distances.count - 1))]
+    }
+
     /// Average speeds at or below this are on foot; at or above `vehicleSpeed`, a vehicle.
     /// Trips on opposite sides don't merge while their types are unconfirmed.
     public static let onFootSpeed: CLLocationSpeed = 2.2   // ~8 km/h

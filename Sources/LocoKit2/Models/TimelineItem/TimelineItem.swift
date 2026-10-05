@@ -128,6 +128,11 @@ public struct TimelineItem: FetchableRecord, Codable, Identifiable, Hashable, Se
             } else { // Trips
                 if dateRange.duration < TimelineItemTrip.minimumKeeperDuration { return false }
                 if let distance = trip?.distance, distance < TimelineItemTrip.minimumKeeperDistance { return false }
+                if trip?.confirmedActivityType == nil, TimelineItemTrip.minimumKeeperSpread > 0, let samples,
+                   let spread = TimelineItemTrip.spread(of: samples.usableLocations()),
+                   spread < TimelineItemTrip.minimumKeeperSpread {
+                    return false
+                }
                 return true
             }
         }
