@@ -28,6 +28,13 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     /// 0 disables the check.
     nonisolated(unsafe) public static var minimumKeeperSpread: CLLocationDistance = 20
 
+    /// Lets an app declare an unconfirmed trip not worth keeping even though it passes the
+    /// built-in checks — e.g. the short walk between a parked car and the place visited. Return
+    /// false to drop it. Pair with `TimelineItemVisit.absorbsTrip` so a neighbouring visit can take
+    /// its samples (visits otherwise only consume invalid trips). Same rules as the visit hook:
+    /// it may read the database, but should be quick.
+    nonisolated(unsafe) public static var keeperOverride: (@Sendable (TimelineItem) -> Bool)? = nil
+
     /// How far the trip reached from its centre: the 90th-percentile distance of the usable locations
     /// from their per-axis median (robust to a stray fix either way). Nil without at least two locations.
     public static func spread(of locations: [CLLocation]) -> CLLocationDistance? {

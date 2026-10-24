@@ -26,6 +26,10 @@ public struct TimelineItemVisit: FetchableRecord, PersistableRecord, Identifiabl
     /// that duration; it may read the database (the processor never asks from inside a
     /// database access), but should be quick.
     nonisolated(unsafe) public static var keeperOverride: (@Sendable (TimelineItem) -> Bool)? = nil
+    /// Lets an app have a visit consume a valid trip that isn't worth keeping (see
+    /// `TimelineItemTrip.keeperOverride`): called as (visit, trip) for unconfirmed non-keeper trips
+    /// next to the visit; true scores the merge high.
+    nonisolated(unsafe) public static var absorbsTrip: (@Sendable (_ visit: TimelineItem, _ trip: TimelineItem) -> Bool)? = nil
 
     public static let minimumValidDuration: TimeInterval = 10
 

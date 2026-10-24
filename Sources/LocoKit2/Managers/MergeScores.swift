@@ -266,6 +266,13 @@ public final class MergeScores {
             let pctInside = try consumee.percentInside(consumerVisit)
             let pctInsideScore = Int(floor(pctInside * 10))
 
+            // visit <- a valid trip the app hands to it (e.g. the walk from the car)
+            if try consumee.isValid, consumee.trip?.confirmedActivityType == nil,
+               let absorbs = TimelineItemVisit.absorbsTrip, try !consumee.isWorthKeeping,
+               absorbs(consumer, consumee) {
+                return .high
+            }
+
             // valid / keeper visit <- invalid trip
             if try consumer.isValid && consumee.isInvalid {
                 switch pctInsideScore {

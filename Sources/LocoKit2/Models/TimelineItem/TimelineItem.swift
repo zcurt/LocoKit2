@@ -133,6 +133,9 @@ public struct TimelineItem: FetchableRecord, Codable, Identifiable, Hashable, Se
                    spread < TimelineItemTrip.minimumKeeperSpread {
                     return false
                 }
+                if trip?.confirmedActivityType == nil, let override = TimelineItemTrip.keeperOverride {
+                    return override(self)
+                }
                 return true
             }
         }
