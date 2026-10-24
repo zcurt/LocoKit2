@@ -118,6 +118,18 @@ public final class Database: @unchecked Sendable {
         addEdgeTriggers(to: &migrator)
         addSampleTriggers(to: &migrator)
         addRTreeTriggers(to: &migrator)
+        addSampleItemDateIndex(to: &migrator)
+    }
+
+    /// The trigger for a sample leaving an item recomputes the item's start and end from its remaining
+    /// samples, once per moved sample. With only a timelineItemId index each recompute scans the item,
+    /// so a merge moving n samples out of a long item costs n² row reads (1.6 s per merge on long Arc
+    /// items). An (item, date) index makes the MIN/MAX a seek.
+    private func addSampleItemDateIndex(to migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("LocomotionSample_timelineItemId_date_index") { db in
+            try db.create(index: "LocomotionSample_on_timelineItemId_date", on: "LocomotionSample",
+                          columns: ["timelineItemId", "date"], ifNotExists: true)
+        }
     }
 
     // MARK: - URLs
