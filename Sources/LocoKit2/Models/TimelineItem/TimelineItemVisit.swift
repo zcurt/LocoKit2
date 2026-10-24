@@ -30,6 +30,10 @@ public struct TimelineItemVisit: FetchableRecord, PersistableRecord, Identifiabl
     /// `TimelineItemTrip.keeperOverride`): called as (visit, trip) for unconfirmed non-keeper trips
     /// next to the visit; true scores the merge high.
     nonisolated(unsafe) public static var absorbsTrip: (@Sendable (_ visit: TimelineItem, _ trip: TimelineItem) -> Bool)? = nil
+    /// Lets an app keep a visit's edge sample that lies outside the visit instead of edge
+    /// cleansing handing it to the neighbouring trip — e.g. the walk a visit absorbed, which
+    /// would otherwise drain sample by sample into the drive beside it. True keeps it.
+    nonisolated(unsafe) public static var holdsEdge: (@Sendable (_ visit: TimelineItem, _ trip: TimelineItem, _ edge: LocomotionSample) -> Bool)? = nil
 
     public static let minimumValidDuration: TimeInterval = 10
 

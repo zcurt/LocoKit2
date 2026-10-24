@@ -166,7 +166,7 @@ extension TimelineProcessor {
         // wakeup-launch samples still eject once they move beyond sd:2.
         if !excluding.contains(visitEdge), !visit.contains(tripEdgeLocation, sd: 1) {
             let visitEdgeBelongs = visit.contains(visitEdgeLocation, sd: visitEdge.activityType == .stationary ? 2 : 1)
-            if !visitEdgeBelongs {
+            if !visitEdgeBelongs, TimelineItemVisit.holdsEdge?(visitItem, tripItem, visitEdge) != true {
                 try await visitEdge.assignTo(itemId: tripItem.id)
                 return visitEdge
             }
