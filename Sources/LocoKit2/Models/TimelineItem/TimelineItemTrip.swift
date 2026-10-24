@@ -35,6 +35,11 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     /// it may read the database, but should be quick.
     nonisolated(unsafe) public static var keeperOverride: (@Sendable (TimelineItem) -> Bool)? = nil
 
+    /// Lets an app say how an unconfirmed sample votes in its trip's classified type, overriding
+    /// the sample's own classification — e.g. a "stationary" sample with a walking step cadence
+    /// (indoors, GPS reports no speed while the pedometer counts steps). Nil keeps the classification.
+    nonisolated(unsafe) public static var votingType: (@Sendable (LocomotionSample) -> ActivityType?)? = nil
+
     /// How far the trip reached from its centre: the 90th-percentile distance of the usable locations
     /// from their per-axis median (robust to a stray fix either way). Nil without at least two locations.
     public static func spread(of locations: [CLLocation]) -> CLLocationDistance? {
@@ -135,7 +140,9 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     }
 
     private static func calculateModeActivityType(from samples: [LocomotionSample]) -> ActivityType? {
-        let activityTypes = samples.compactMap { $0.activityType }
+        let activityTypes = samples.compactMap { sample in
+            sample.confirmedActivityType ?? votingType?(sample) ?? sample.classifiedActivityType
+        }
         let movingActivityTypes = activityTypes.filter(\.isMovingType)
 
         // prefer mode moving type
