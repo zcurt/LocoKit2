@@ -4,6 +4,40 @@ import CoreLocation
 
 final class LocoKit2Tests: XCTestCase {
 
+    // MARK: - Stray fixes
+
+    private func samples(at coordinate: CLLocationCoordinate2D, count: Int, metresEast: Double = 0) -> [LocomotionSample] {
+        (0..<count).map { i in
+            let location = CLLocation(coordinate: CLLocationCoordinate2D(latitude: coordinate.latitude,
+                                                                          longitude: coordinate.longitude + metresEast / (111_320 * cos(coordinate.latitude * .pi / 180))),
+                                      altitude: 0, horizontalAccuracy: 10, verticalAccuracy: 10, timestamp: Date(timeIntervalSince1970: Double(i)))
+            return LocomotionSample(date: location.timestamp, movingState: .stationary, recordingState: .recording, location: location)
+        }
+    }
+
+    func testAFewStrayFixesAreDroppedBeforeGeometry() {
+        let home = CLLocationCoordinate2D(latitude: 44.9791, longitude: -93.0539)
+        let atHome = samples(at: home, count: 100)
+        let inFlight = samples(at: home, count: 3, metresEast: 40_000)
+        let cleaned = (atHome + inFlight).withoutStrayFixes()
+        XCTAssertEqual(cleaned.count, 100)
+        let visit = TimelineItemVisit(itemId: "v", samples: atHome + inFlight)!
+        XCTAssertLessThan(CLLocation(latitude: visit.latitude!, longitude: visit.longitude!).distance(from: CLLocation(latitude: home.latitude, longitude: home.longitude)), 5)
+        XCTAssertLessThan(visit.radiusMean, 20)
+    }
+
+    func testMovementIsNotTreatedAsStrayFixes() {
+        let home = CLLocationCoordinate2D(latitude: 44.9791, longitude: -93.0539)
+        let mixed = samples(at: home, count: 60) + samples(at: home, count: 40, metresEast: 5_000)   // 40% far: a trip inside the item
+        XCTAssertEqual(mixed.withoutStrayFixes().count, 100)
+    }
+
+    func testTinyItemsAreLeftAlone() {
+        let home = CLLocationCoordinate2D(latitude: 44.9791, longitude: -93.0539)
+        let few = samples(at: home, count: 10) + samples(at: home, count: 1, metresEast: 5_000)
+        XCTAssertEqual(few.withoutStrayFixes().count, 11)
+    }
+
     // MARK: - v3 import: visit coordinate normalisation (BIG-611)
     //
     // Regression guard: old LocoKit data contains null-island (0,0) and other invalid

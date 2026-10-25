@@ -72,6 +72,7 @@ public struct TimelineItemVisit: FetchableRecord, PersistableRecord, Identifiabl
     // MARK: - Init
 
     init?(itemId: String, samples: [LocomotionSample]) {
+        let samples = samples.withoutStrayFixes()
         guard let coordinate = samples.weightedCenter() else {
             return nil
         }
@@ -206,6 +207,7 @@ public struct TimelineItemVisit: FetchableRecord, PersistableRecord, Identifiabl
     // MARK: - Updating
 
     public mutating func update(from samples: [LocomotionSample]) async {
+        let samples = samples.withoutStrayFixes()
         guard let coordinate = samples.weightedCenter() else {
             return
         }

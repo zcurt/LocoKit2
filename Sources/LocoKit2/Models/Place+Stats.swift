@@ -91,12 +91,22 @@ extension Place {
             let visitEnds = statsVisits.compactMap { $0.dateRange?.end }
             let visitDurations = statsVisits.compactMap { $0.dateRange?.duration }
 
-            // calculate location data if we have valid samples
-            let center = samples.weightedCenter()
+            // calculate location data if we have valid samples — a sample
+            // farther than a kilometre from its own visit's centre says nothing
+            // about the place (an airport stop holding the first in-flight
+            // fixes put the airport's radius at the cap), nor do stray fixes
+            let visitCentres = Dictionary(uniqueKeysWithValues: confirmedVisits.compactMap { item in
+                item.visit?.center.map { (item.id, $0.location) }
+            })
+            let placeSamples = samples.filter { sample in
+                guard let location = sample.location, let centre = visitCentres[sample.timelineItemId ?? ""] else { return true }
+                return location.distance(from: centre) <= 1000
+            }.withoutStrayFixes()
+            let center = placeSamples.weightedCenter()
             let locationData: (latitude: Double, longitude: Double, radiusMean: Double, radiusSD: Double)?
             
             if let center {
-                let radius = samples.weightedRadius(from: center.location)
+                let radius = placeSamples.weightedRadius(from: center.location)
                 let boundedMean = radius.mean.clamped(min: Place.minimumPlaceRadius, max: Place.maximumPlaceRadius)
                 let boundedSD = radius.sd.clamped(min: 0, max: Place.maximumPlaceRadius)
                 locationData = (center.latitude, center.longitude, boundedMean, boundedSD)
