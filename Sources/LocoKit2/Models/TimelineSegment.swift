@@ -22,6 +22,11 @@ public final class TimelineSegment: Sendable {
 
     public let dateRange: DateInterval
     public var shouldReprocessOnUpdate: Bool
+    /// Whether visits' samples load. A long stay is thousands of samples
+    /// that a day's list and map never draw (a visit shows at its center);
+    /// journeys' samples always load (their route). Processing reads
+    /// visits' samples, so a segment that skips them never processes.
+    public let loadsVisitSamples: Bool
 
     public private(set) var timelineItems: [TimelineItem]?
 
@@ -39,8 +44,9 @@ public final class TimelineSegment: Sendable {
 
     private let updateDebouncer = Debouncer()
 
-    public init(dateRange: DateInterval, shouldReprocessOnUpdate: Bool = false) {
+    public init(dateRange: DateInterval, shouldReprocessOnUpdate: Bool = false, loadsVisitSamples: Bool = true) {
         self.shouldReprocessOnUpdate = shouldReprocessOnUpdate
+        self.loadsVisitSamples = loadsVisitSamples
         self.dateRange = dateRange
         setupObserver()
         Task { await fetchItems() }
@@ -141,6 +147,7 @@ public final class TimelineSegment: Sendable {
         // load/copy samples
         for index in newItems.indices {
             let newItem = newItems[index]
+            if newItem.isVisit && !loadsVisitSamples { continue }
             if newItem.samplesChanged {
                 await newItems[index].fetchSamples()
 
@@ -162,7 +169,7 @@ public final class TimelineSegment: Sendable {
         if Task.isCancelled { return }
         
         // early return if we're not supposed to modify the items at all
-        guard shouldReprocessOnUpdate else { return }
+        guard shouldReprocessOnUpdate, loadsVisitSamples else { return }
         guard UIApplication.shared.applicationState == .active else { return }
 
         processingTask?.cancel()
