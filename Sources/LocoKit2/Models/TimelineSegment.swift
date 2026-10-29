@@ -102,16 +102,37 @@ public final class TimelineSegment: Sendable {
         }
     }
 
+    @ObservationIgnored
+    private var isFetching = false
+
+    @ObservationIgnored
+    private var fetchAgain = false
+
+    /// Loads the segment's items. Duplicates are coalesced per segment: a
+    /// request arriving while this segment is fetching makes it fetch once
+    /// more when done (that fetch may have read the database before the
+    /// change). They used to be rejected registry-wide by date range, so a
+    /// second segment over the same days lost its first fetch and stayed
+    /// empty (Follow's test: a lean and a full segment over one day).
     private func fetchItems() async {
+        if isFetching {
+            fetchAgain = true
+            return
+        }
+        isFetching = true
+        defer { isFetching = false }
+        repeat {
+            fetchAgain = false
+            await fetchItemsOnce()
+        } while fetchAgain && !Task.isCancelled
+    }
+
+    private func fetchItemsOnce() async {
         guard let handle = OperationRegistry.startOperation(
             .timeline,
             operation: "TimelineSegment.fetchItems()",
-            objectKey: dateRange.description,
-            rejectDuplicates: true
-        ) else {
-            Log.debug("Skipping duplicate TimelineSegment.fetchItems()", subsystem: .timeline)
-            return
-        }
+            objectKey: dateRange.description
+        ) else { return }
         defer { OperationRegistry.endOperation(handle) }
         
         do {
