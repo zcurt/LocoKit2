@@ -40,6 +40,13 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     /// (indoors, GPS reports no speed while the pedometer counts steps). Nil keeps the classification.
     nonisolated(unsafe) public static var votingType: (@Sendable (LocomotionSample) -> ActivityType?)? = nil
 
+    /// Lets an app re-judge a trip's classified type from the whole trip — its samples, distance
+    /// and speed — after the samples have voted (e.g. a 78 m hop at walking pace with steps that
+    /// jittery downtown fixes voted "car"). Called only for trips with no confirmed type; nil keeps
+    /// the vote.
+    nonisolated(unsafe) public static var tripTypeOverride: (@Sendable (_ voted: ActivityType?, _ samples: [LocomotionSample],
+                                                                        _ distance: CLLocationDistance, _ speed: CLLocationSpeed) -> ActivityType?)? = nil
+
     /// How far the trip reached from its centre: the 90th-percentile distance of the usable locations
     /// from their per-axis median (robust to a stray fix either way). Nil without at least two locations.
     public static func spread(of locations: [CLLocation]) -> CLLocationDistance? {
@@ -84,8 +91,9 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
         let distance = Self.calculateDistance(from: samples)
         self.speed = Self.calculateSpeed(from: samples, distance: distance)
         self.distance = distance
-        self.classifiedActivityType = Self.calculateModeActivityType(from: samples)
         self.confirmedActivityType = Self.calculateConfirmedActivityType(from: samples)
+        self.classifiedActivityType = Self.calculateModeActivityType(from: samples, distance: distance, speed: speed,
+                                                                     confirmed: confirmedActivityType)
         
         // if we have a confirmed type, we can't be uncertain
         if confirmedActivityType != nil {
@@ -98,8 +106,9 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
     public mutating func update(from samples: [LocomotionSample]) async {
         self.distance = Self.calculateDistance(from: samples)
         self.speed = Self.calculateSpeed(from: samples, distance: distance)
-        self.classifiedActivityType = Self.calculateModeActivityType(from: samples)
         self.confirmedActivityType = Self.calculateConfirmedActivityType(from: samples)
+        self.classifiedActivityType = Self.calculateModeActivityType(from: samples, distance: distance, speed: speed,
+                                                                     confirmed: confirmedActivityType)
 
         // 1. uncertainActivityType must be false if we have confirmedActivityType
         // 2. uncertainActivityType must be true if we have no activity type
@@ -139,14 +148,17 @@ public struct TimelineItemTrip: FetchableRecord, PersistableRecord, Identifiable
         return 0
     }
 
-    private static func calculateModeActivityType(from samples: [LocomotionSample]) -> ActivityType? {
+    private static func calculateModeActivityType(from samples: [LocomotionSample], distance: CLLocationDistance,
+                                                  speed: CLLocationSpeed, confirmed: ActivityType?) -> ActivityType? {
         let activityTypes = samples.compactMap { sample in
             sample.confirmedActivityType ?? votingType?(sample) ?? sample.classifiedActivityType
         }
         let movingActivityTypes = activityTypes.filter(\.isMovingType)
 
         // prefer mode moving type
-        return movingActivityTypes.mode() ?? activityTypes.mode()
+        let voted = movingActivityTypes.mode() ?? activityTypes.mode()
+        guard confirmed == nil, let tripTypeOverride else { return voted }
+        return tripTypeOverride(voted, samples, distance, speed) ?? voted
     }
 
     private static func calculateConfirmedActivityType(from samples: [LocomotionSample]) -> ActivityType? {
